@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-import axios from 'axios';
-
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -11,31 +9,23 @@ import {
 	ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-interface OllamaResponse {
-    model: string;
-    response: string;
-    done: boolean;
-    context?: number[];
-}
+import { AndroidManager } from './android/AndroidManager.js';
+import { CreateAVDArgs, StartEmulatorArgs } from './android/types.js';
+import { OllamaManager } from './ollama/OllamaManager.js';
+import { ChatArgs, GenerateTextArgs } from './ollama/types.js';
 
-interface OllamaModel {
-    name: string;
-    modified_at: string;
-    size: number;
-}
-
-class OllamaMCPServer {
+class MCPServer {
     private server: Server;
-    private ollamaUrl: string;
-    private defaultModel: string;
+    private androidManager: AndroidManager;
+    private ollamaManager: OllamaManager;
 
     constructor(ollamaUrl = 'http://localhost:11434', defaultModel = 'llama2') {
-        this.ollamaUrl = ollamaUrl;
-        this.defaultModel = defaultModel;
+        this.androidManager = new AndroidManager();
+        this.ollamaManager = new OllamaManager(ollamaUrl, defaultModel);
 
         this.server = new Server(
             {
-                name: 'ollama-mcp-server',
+                name: 'ollama-android-mcp-server',
                 version: '1.0.0',
             },
             {
@@ -47,6 +37,40 @@ class OllamaMCPServer {
         );
 
         this.setupHandlers();
+    }
+
+    private isGenerateTextArgs(args: unknown): args is GenerateTextArgs {
+        const obj = args as Record<string, unknown>;
+        return obj && typeof obj.prompt === 'string';
+    }
+
+    private isChatArgs(args: unknown): args is ChatArgs {
+        const obj = args as Record<string, unknown>;
+        return obj && Array.isArray(obj.messages);
+    }
+
+    private isStartEmulatorArgs(args: unknown): args is StartEmulatorArgs {
+        const obj = args as Record<string, unknown>;
+        return obj && typeof obj.avd_name === 'string';
+    }
+
+    private isCreateAVDArgs(args: unknown): args is CreateAVDArgs {
+        const obj = args as Record<string, unknown>;
+        return (
+            obj &&
+            typeof obj.name === 'string' &&
+            typeof obj.package === 'string'
+        );
+    }
+
+    private getPortArg(args: unknown): string {
+        const obj = args as Record<string, unknown>;
+        if (!obj || typeof obj.port !== 'string') {
+            throw new Error(
+                'Invalid arguments: port is required and must be a string',
+            );
+        }
+        return obj.port;
     }
 
     private setupHandlers() {
@@ -129,6 +153,122 @@ class OllamaMCPServer {
                             required: ['messages'],
                         },
                     },
+                    {
+                        name: 'list_emulators',
+                        description:
+                            'List all available Android emulators (AVDs)',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {},
+                        },
+                    },
+                    {
+                        name: 'start_emulator',
+                        description: 'Start an Android emulator',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                avd_name: {
+                                    type: 'string',
+                                    description: 'Name of the AVD to start',
+                                },
+                                cold_boot: {
+                                    type: 'boolean',
+                                    description:
+                                        'Perform a cold boot (optional, default: false)',
+                                },
+                                wipe_data: {
+                                    type: 'boolean',
+                                    description:
+                                        'Wipe user data before starting (optional, default: false)',
+                                },
+                                gpu: {
+                                    type: 'string',
+                                    description:
+                                        'GPU acceleration mode (auto, host, swiftshader_indirect, angle_indirect, guest)',
+                                },
+                                port: {
+                                    type: 'number',
+                                    description:
+                                        'Console port number (optional)',
+                                },
+                            },
+                            required: ['avd_name'],
+                        },
+                    },
+                    {
+                        name: 'stop_emulator',
+                        description: 'Stop a running Android emulator',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                port: {
+                                    type: 'string',
+                                    description:
+                                        'Port number of emulator to stop (e.g., "5554")',
+                                },
+                            },
+                            required: ['port'],
+                        },
+                    },
+                    {
+                        name: 'list_running_emulators',
+                        description: 'List currently running Android emulators',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {},
+                        },
+                    },
+                    {
+                        name: 'create_avd',
+                        description:
+                            'Create a new Android Virtual Device (AVD)',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                name: {
+                                    type: 'string',
+                                    description: 'Name for the new AVD',
+                                },
+                                package: {
+                                    type: 'string',
+                                    description:
+                                        'System image package (e.g., "system-images;android-34;google_apis;x86_64")',
+                                },
+                                device: {
+                                    type: 'string',
+                                    description:
+                                        'Device profile (optional, e.g., "pixel_7")',
+                                },
+                            },
+                            required: ['name', 'package'],
+                        },
+                    },
+                    {
+                        name: 'get_emulator_info',
+                        description:
+                            'Get detailed information about a specific emulator',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                port: {
+                                    type: 'string',
+                                    description:
+                                        'Port number of the emulator (e.g., "5554")',
+                                },
+                            },
+                            required: ['port'],
+                        },
+                    },
+                    {
+                        name: 'list_sdks',
+                        description:
+                            'List installed and available Android SDK packages',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {},
+                        },
+                    },
                 ],
             };
         });
@@ -142,11 +282,73 @@ class OllamaMCPServer {
                 try {
                     switch (name) {
                         case 'generate_text':
-                            return await this.generateText(args);
+                            if (!this.isGenerateTextArgs(args)) {
+                                throw new Error(
+                                    'Invalid arguments: prompt is required',
+                                );
+                            }
+                            return this.wrapResponse(
+                                await this.ollamaManager.generateText(args),
+                            );
                         case 'list_models':
-                            return await this.listModels();
+                            return this.wrapResponse(
+                                await this.ollamaManager.listModels(),
+                            );
                         case 'chat':
-                            return await this.chat(args);
+                            if (!this.isChatArgs(args)) {
+                                throw new Error(
+                                    'Invalid arguments: messages array is required',
+                                );
+                            }
+                            return this.wrapResponse(
+                                await this.ollamaManager.chat(args),
+                            );
+                        case 'list_emulators':
+                            return this.wrapResponse(
+                                await this.androidManager.listEmulators(),
+                            );
+                        case 'start_emulator':
+                            if (!this.isStartEmulatorArgs(args)) {
+                                throw new Error(
+                                    'Invalid arguments: avd_name is required',
+                                );
+                            }
+                            return this.wrapResponse(
+                                await this.androidManager.startEmulator(args),
+                            );
+                        case 'stop_emulator':
+                            return this.wrapResponse(
+                                await this.androidManager.stopEmulator(
+                                    this.getPortArg(args),
+                                ),
+                            );
+                        case 'list_running_emulators':
+                            return this.wrapResponse(
+                                await this.androidManager.listRunningEmulators(),
+                            );
+                        case 'create_avd':
+                            if (!this.isCreateAVDArgs(args)) {
+                                throw new Error(
+                                    'Invalid arguments: name and package are required',
+                                );
+                            }
+                            return this.wrapResponse(
+                                await this.androidManager.createAVD(args),
+                            );
+                        case 'get_emulator_info':
+                            return this.wrapResponse(
+                                JSON.stringify(
+                                    await this.androidManager.getEmulatorInfo(
+                                        this.getPortArg(args),
+                                    ),
+                                    null,
+                                    2,
+                                ),
+                            );
+                        case 'list_sdks':
+                            return this.wrapResponse(
+                                await this.androidManager.listSDKs(),
+                            );
                         default:
                             throw new Error(`Unknown tool: ${name}`);
                     }
@@ -184,6 +386,20 @@ class OllamaMCPServer {
                         name: 'Available Models',
                         description: 'List of all available models in Ollama',
                     },
+                    {
+                        uri: 'android://emulators',
+                        mimeType: 'application/json',
+                        name: 'Android Emulators',
+                        description:
+                            'List of all available Android Virtual Devices',
+                    },
+                    {
+                        uri: 'android://running',
+                        mimeType: 'application/json',
+                        name: 'Running Emulators',
+                        description:
+                            'List of currently running Android emulators',
+                    },
                 ],
             };
         });
@@ -197,15 +413,46 @@ class OllamaMCPServer {
                 try {
                     switch (uri) {
                         case 'ollama://status':
-                            return await this.getServerStatus();
-                        case 'ollama://models':
-                            const models = await this.getModels();
                             return {
                                 contents: [
                                     {
                                         uri,
                                         mimeType: 'application/json',
-                                        text: JSON.stringify(models, null, 2),
+                                        text: JSON.stringify(
+                                            await this.ollamaManager.getServerStatus(),
+                                            null,
+                                            2,
+                                        ),
+                                    },
+                                ],
+                            };
+                        case 'ollama://models':
+                            return {
+                                contents: [
+                                    {
+                                        uri,
+                                        mimeType: 'application/json',
+                                        text: await this.ollamaManager.listModels(),
+                                    },
+                                ],
+                            };
+                        case 'android://emulators':
+                            return {
+                                contents: [
+                                    {
+                                        uri,
+                                        mimeType: 'application/json',
+                                        text: await this.androidManager.listEmulators(),
+                                    },
+                                ],
+                            };
+                        case 'android://running':
+                            return {
+                                contents: [
+                                    {
+                                        uri,
+                                        mimeType: 'application/json',
+                                        text: await this.androidManager.listRunningEmulators(),
                                     },
                                 ],
                             };
@@ -225,143 +472,27 @@ class OllamaMCPServer {
         );
     }
 
-    private async generateText(args: any) {
-        const {
-            prompt,
-            model = this.defaultModel,
-            temperature,
-            max_tokens,
-        } = args;
-
-        const response = await axios.post(`${this.ollamaUrl}/api/generate`, {
-            model,
-            prompt,
-            stream: false,
-            options: {
-                ...(temperature !== undefined && {temperature}),
-                ...(max_tokens !== undefined && {num_predict: max_tokens}),
-            },
-        });
-
-        const data: OllamaResponse = response.data;
-
+    private wrapResponse(text: string) {
         return {
             content: [
                 {
                     type: 'text',
-                    text: data.response,
+                    text,
                 },
             ],
         };
     }
 
-    private async chat(args: any) {
-        const {messages, model = this.defaultModel} = args;
-
-        const response = await axios.post(`${this.ollamaUrl}/api/chat`, {
-            model,
-            messages,
-            stream: false,
-        });
-
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: response.data.message.content,
-                },
-            ],
-        };
-    }
-
-    private async listModels() {
-        const models = await this.getModels();
-        const modelList = models
-            .map(
-                (model: OllamaModel) =>
-                    `${model.name} (Size: ${(
-                        model.size /
-                        1024 /
-                        1024 /
-                        1024
-                    ).toFixed(2)}GB, Modified: ${model.modified_at})`,
-            )
-            .join('\n');
-
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: `Available Ollama Models:\n${modelList}`,
-                },
-            ],
-        };
-    }
-
-    private async getModels(): Promise<OllamaModel[]> {
-        const response = await axios.get(`${this.ollamaUrl}/api/tags`);
-        return response.data.models || [];
-    }
-
-    private async getServerStatus() {
-        try {
-            const response = await axios.get(`${this.ollamaUrl}/api/tags`);
-            const models = response.data.models || [];
-
-            return {
-                contents: [
-                    {
-                        uri: 'ollama://status',
-                        mimeType: 'application/json',
-                        text: JSON.stringify(
-                            {
-                                status: 'online',
-                                url: this.ollamaUrl,
-                                models_count: models.length,
-                                default_model: this.defaultModel,
-                                timestamp: new Date().toISOString(),
-                            },
-                            null,
-                            2,
-                        ),
-                    },
-                ],
-            };
-        } catch (error) {
-            return {
-                contents: [
-                    {
-                        uri: 'ollama://status',
-                        mimeType: 'application/json',
-                        text: JSON.stringify(
-                            {
-                                status: 'offline',
-                                url: this.ollamaUrl,
-                                error:
-                                    error instanceof Error
-                                        ? error.message
-                                        : 'Unknown error',
-                                timestamp: new Date().toISOString(),
-                            },
-                            null,
-                            2,
-                        ),
-                    },
-                ],
-            };
-        }
-    }
-
-    async start() {
+    public async start(): Promise<void> {
         const transport = new StdioServerTransport();
         await this.server.connect(transport);
-        console.error('Ollama MCP Server started');
+        console.error('MCP Server started');
     }
 }
 
 // Start the server
-const server = new OllamaMCPServer();
-server.start().catch((error) => {
+const mcpServer = new MCPServer();
+mcpServer.start().catch((error) => {
     console.error('Failed to start server:', error);
     process.exit(1);
 });
