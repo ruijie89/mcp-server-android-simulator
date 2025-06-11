@@ -6,6 +6,8 @@ import {
 	CreateAVDArgs,
 	EmulatorDevice,
 	EmulatorInfo,
+	SDKList,
+	SDKPackage,
 	StartEmulatorArgs,
 } from './types';
 
@@ -16,14 +18,28 @@ export class AndroidManager {
     private androidPaths: AndroidPaths;
 
     constructor() {
-        this.androidHome =
-            process.env.ANDROID_HOME ||
-            `${process.env.HOME}/Library/Android/sdk`;
+        const defaultAndroidHome = `${process.env.HOME}/Library/Android/sdk`;
+        this.androidHome = process.env.ANDROID_HOME || defaultAndroidHome;
+
+        // Verify Android SDK installation
+        if (!this.androidHome) {
+            throw new Error(
+                'ANDROID_HOME environment variable is not set and default path not found',
+            );
+        }
+
         this.androidPaths = {
             avdManager: `${this.androidHome}/cmdline-tools/latest/bin/avdmanager`,
             emulator: `${this.androidHome}/emulator/emulator`,
             adb: `${this.androidHome}/platform-tools/adb`,
+            sdkmanager: `${this.androidHome}/cmdline-tools/latest/bin/sdkmanager`,
         };
+
+        // Log SDK paths for debugging
+        console.error('Android SDK paths:', {
+            ANDROID_HOME: this.androidHome,
+            ...this.androidPaths,
+        });
     }
 
     private getAndroidEnv(): NodeJS.ProcessEnv {
@@ -252,5 +268,131 @@ export class AndroidManager {
         return line
             ? line.split(']: [')[1]?.replace(']', '') || 'Unknown'
             : 'Unknown';
+    }
+
+    async listSDKs(): Promise<string> {
+        try {
+            const sdkList = await this.getSDKList();
+            let output = 'Installed SDK Packages:\n';
+
+            if (sdkList.installed.length === 0) {
+                output += '  No packages installed\n';
+            } else {
+                output += sdkList.installed
+                    .map(
+                        (pkg) =>
+                            `  ${pkg.path} (${pkg.version})${
+                                pkg.description ? ' - ' + pkg.description : ''
+                            }`,
+                    )
+                    .join('\n');
+            }
+
+            output += '\n\nAvailable SDK Packages:\n';
+            const relevantPackages = sdkList.available.filter(
+                (pkg) =>
+                    pkg.path.includes('system-images;android-') ||
+                    pkg.path.includes('platforms;android-') ||
+                    pkg.path.includes('platform-tools') ||
+                    pkg.path.includes('build-tools;') ||
+                    pkg.path.includes('cmdline-tools;'),
+            );
+
+            if (relevantPackages.length === 0) {
+                output += '  No relevant packages found\n';
+            } else {
+                output += relevantPackages
+                    .map(
+                        (pkg) =>
+                            `  ${pkg.path} (${pkg.version})${
+                                pkg.description ? ' - ' + pkg.description : ''
+                            }`,
+                    )
+                    .join('\n');
+            }
+
+            return output;
+        } catch (error) {
+            return (
+                `Error listing SDKs: ${
+                    error instanceof Error ? error.message : 'Unknown error'
+                }\n` +
+                `ANDROID_HOME: ${this.androidHome}\n` +
+                'Please ensure Android SDK is properly installed and ANDROID_HOME is set correctly.'
+            );
+        }
+    }
+
+    private async getSDKList(): Promise<SDKList> {
+        try {
+            const {stdout} = await execAsync(
+                `${this.androidPaths.sdkmanager} --list`,
+                {
+                    env: this.getAndroidEnv(),
+                },
+            );
+
+            const lines = stdout.split('\n');
+            const installed: SDKPackage[] = [];
+            const available: SDKPackage[] = [];
+            let currentSection: 'installed' | 'available' | null = null;
+
+            for (const line of lines) {
+                if (line.includes('Available Packages:')) {
+                    currentSection = 'available';
+                    continue;
+                }
+
+                // Skip empty lines and headers
+                if (
+                    !line.trim() ||
+                    line.includes('---') ||
+                    line.includes('Path |')
+                ) {
+                    continue;
+                }
+
+                // Parse installed packages (they have a different format)
+                if (currentSection !== 'available') {
+                    const parts = line
+                        .trim()
+                        .split('|')
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                    if (parts.length >= 2) {
+                        installed.push({
+                            path: parts[0],
+                            version: parts[1],
+                            description: parts[2] || '',
+                            installed: true,
+                        });
+                    }
+                    continue;
+                }
+
+                // Parse available packages
+                const parts = line
+                    .trim()
+                    .split('|')
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                if (parts.length >= 2) {
+                    available.push({
+                        path: parts[0],
+                        version: parts[1],
+                        description: parts[2] || '',
+                        installed: false,
+                    });
+                }
+            }
+
+            return {installed, available};
+        } catch (error) {
+            throw new Error(
+                `Failed to list SDKs: ${
+                    error instanceof Error ? error.message : 'Unknown error'
+                }`,
+            );
+        }
     }
 }

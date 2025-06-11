@@ -9,6 +9,19 @@ export interface AndroidPaths {
     avdManager: string;
     emulator: string;
     adb: string;
+    sdkmanager: string;
+}
+
+export interface SDKPackage {
+    path: string;
+    description: string;
+    version: string;
+    installed: boolean;
+}
+
+export interface SDKList {
+    installed: SDKPackage[];
+    available: SDKPackage[];
 }
 
 export interface CreateAVDArgs {

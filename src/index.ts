@@ -260,6 +260,15 @@ class MCPServer {
                             required: ['port'],
                         },
                     },
+                    {
+                        name: 'list_sdks',
+                        description:
+                            'List installed and available Android SDK packages',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {},
+                        },
+                    },
                 ],
             };
         });
@@ -335,6 +344,10 @@ class MCPServer {
                                     null,
                                     2,
                                 ),
+                            );
+                        case 'list_sdks':
+                            return this.wrapResponse(
+                                await this.androidManager.listSDKs(),
                             );
                         default:
                             throw new Error(`Unknown tool: ${name}`);
