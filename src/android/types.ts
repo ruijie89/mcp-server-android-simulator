@@ -46,3 +46,8 @@ export interface EmulatorInfo {
     manufacturer: string;
     architecture: string;
 }
+
+export interface LaunchAppArgs {
+    port: string;
+    package_name: string;
+}

@@ -10,7 +10,11 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { AndroidManager } from './android/AndroidManager.js';
-import { CreateAVDArgs, StartEmulatorArgs } from './android/types.js';
+import {
+	CreateAVDArgs,
+	LaunchAppArgs,
+	StartEmulatorArgs,
+} from './android/types.js';
 import { OllamaManager } from './ollama/OllamaManager.js';
 import { ChatArgs, GenerateTextArgs } from './ollama/types.js';
 
@@ -269,6 +273,27 @@ class MCPServer {
                             properties: {},
                         },
                     },
+                    {
+                        name: 'launch_app',
+                        description:
+                            'Launch an app on a running Android emulator',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                port: {
+                                    type: 'string',
+                                    description:
+                                        'Port number of the target emulator (e.g., "5554")',
+                                },
+                                package_name: {
+                                    type: 'string',
+                                    description:
+                                        'Package name of the app to launch (e.g., "com.android.settings")',
+                                },
+                            },
+                            required: ['port', 'package_name'],
+                        },
+                    },
                 ],
             };
         });
@@ -345,6 +370,15 @@ class MCPServer {
                                     2,
                                 ),
                             );
+                        case 'launch_app':
+                            if (!this.isLaunchAppArgs(args)) {
+                                throw new Error(
+                                    'Invalid arguments: port and package_name are required',
+                                );
+                            }
+                            return this.wrapResponse(
+                                await this.androidManager.launchApp(args),
+                            );
                         case 'list_sdks':
                             return this.wrapResponse(
                                 await this.androidManager.listSDKs(),
@@ -353,19 +387,13 @@ class MCPServer {
                             throw new Error(`Unknown tool: ${name}`);
                     }
                 } catch (error) {
-                    return {
-                        content: [
-                            {
-                                type: 'text',
-                                text: `Error: ${
-                                    error instanceof Error
-                                        ? error.message
-                                        : 'Unknown error'
-                                }`,
-                            },
-                        ],
-                        isError: true,
-                    };
+                    throw new Error(
+                        `Tool execution failed: ${
+                            error instanceof Error
+                                ? error.message
+                                : 'Unknown error'
+                        }`,
+                    );
                 }
             },
         );
@@ -481,6 +509,14 @@ class MCPServer {
                 },
             ],
         };
+    }
+
+    private isLaunchAppArgs(args: any): args is LaunchAppArgs {
+        return (
+            typeof args === 'object' &&
+            typeof args.port === 'string' &&
+            typeof args.package_name === 'string'
+        );
     }
 
     public async start(): Promise<void> {

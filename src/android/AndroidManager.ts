@@ -6,6 +6,7 @@ import {
 	CreateAVDArgs,
 	EmulatorDevice,
 	EmulatorInfo,
+	LaunchAppArgs,
 	SDKList,
 	SDKPackage,
 	StartEmulatorArgs,
@@ -260,6 +261,63 @@ export class AndroidManager {
         } catch (error) {
             console.error('Error listing running emulators:', error);
             return [];
+        }
+    }
+
+    async launchApp(args: LaunchAppArgs): Promise<string> {
+        const {port, package_name} = args;
+
+        try {
+            // First check if the emulator is running
+            const running = await this.getRunningEmulators();
+            if (!running.some((emu) => emu.port === port)) {
+                throw new Error(`No emulator running on port ${port}`);
+            }
+
+            // Check if the package exists on the device
+            const {stdout: packages} = await execAsync(
+                `${this.androidPaths.adb} -s emulator-${port} shell pm list packages ${package_name}`,
+                {
+                    env: this.getAndroidEnv(),
+                },
+            );
+
+            if (!packages.includes(package_name)) {
+                throw new Error(
+                    `Package ${package_name} not found on emulator-${port}`,
+                );
+            }
+
+            // Get the main activity of the package
+            const {stdout: activities} = await execAsync(
+                `${this.androidPaths.adb} -s emulator-${port} shell cmd package resolve-activity --brief ${package_name} | tail -n 1`,
+                {
+                    env: this.getAndroidEnv(),
+                },
+            );
+
+            const activity = activities.trim();
+            if (!activity) {
+                throw new Error(
+                    `Could not find main activity for package ${package_name}`,
+                );
+            }
+
+            // Launch the app
+            await execAsync(
+                `${this.androidPaths.adb} -s emulator-${port} shell am start -n ${activity}`,
+                {
+                    env: this.getAndroidEnv(),
+                },
+            );
+
+            return `Successfully launched ${package_name} on emulator-${port}`;
+        } catch (error) {
+            throw new Error(
+                `Failed to launch app: ${
+                    error instanceof Error ? error.message : 'Unknown error'
+                }`,
+            );
         }
     }
 
