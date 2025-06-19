@@ -1,7 +1,7 @@
 {
-  "name": "mcp-ollama-server",
+  "name": "mcp-android-server",
   "version": "1.0.0",
-  "description": "MCP server for local Ollama LLM integration",
+  "description": "MCP server for Android interaction",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
@@ -18,7 +18,7 @@
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"
   },
-  "keywords": ["mcp", "ollama", "llm", "server"],
-  "author": "Your Name",
+  "keywords": ["mcp", "ollama", "llm", "server", "android"],
+  "author": "Rui Jie",
   "license": "MIT"
 }

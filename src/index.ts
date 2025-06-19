@@ -15,21 +15,17 @@ import {
 	LaunchAppArgs,
 	StartEmulatorArgs,
 } from './android/types.js';
-import { OllamaManager } from './ollama/OllamaManager.js';
-import { ChatArgs, GenerateTextArgs } from './ollama/types.js';
 
 class MCPServer {
     private server: Server;
     private androidManager: AndroidManager;
-    private ollamaManager: OllamaManager;
 
-    constructor(ollamaUrl = 'http://localhost:11434', defaultModel = 'llama2') {
+    constructor() {
         this.androidManager = new AndroidManager();
-        this.ollamaManager = new OllamaManager(ollamaUrl, defaultModel);
 
         this.server = new Server(
             {
-                name: 'ollama-android-mcp-server',
+                name: 'android-mcp-server',
                 version: '1.0.0',
             },
             {
@@ -41,16 +37,6 @@ class MCPServer {
         );
 
         this.setupHandlers();
-    }
-
-    private isGenerateTextArgs(args: unknown): args is GenerateTextArgs {
-        const obj = args as Record<string, unknown>;
-        return obj && typeof obj.prompt === 'string';
-    }
-
-    private isChatArgs(args: unknown): args is ChatArgs {
-        const obj = args as Record<string, unknown>;
-        return obj && Array.isArray(obj.messages);
     }
 
     private isStartEmulatorArgs(args: unknown): args is StartEmulatorArgs {
@@ -82,81 +68,6 @@ class MCPServer {
         this.server.setRequestHandler(ListToolsRequestSchema, async () => {
             return {
                 tools: [
-                    {
-                        name: 'generate_text',
-                        description: 'Generate text using Ollama LLM',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {
-                                prompt: {
-                                    type: 'string',
-                                    description:
-                                        'The prompt to send to the LLM',
-                                },
-                                model: {
-                                    type: 'string',
-                                    description:
-                                        'The model to use (optional, defaults to configured model)',
-                                },
-                                temperature: {
-                                    type: 'number',
-                                    description:
-                                        'Temperature for response generation (0.0 to 1.0)',
-                                    minimum: 0,
-                                    maximum: 1,
-                                },
-                                max_tokens: {
-                                    type: 'number',
-                                    description:
-                                        'Maximum number of tokens to generate',
-                                },
-                            },
-                            required: ['prompt'],
-                        },
-                    },
-                    {
-                        name: 'list_models',
-                        description: 'List all available Ollama models',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {},
-                        },
-                    },
-                    {
-                        name: 'chat',
-                        description: 'Have a conversation with the LLM',
-                        inputSchema: {
-                            type: 'object',
-                            properties: {
-                                messages: {
-                                    type: 'array',
-                                    description: 'Array of chat messages',
-                                    items: {
-                                        type: 'object',
-                                        properties: {
-                                            role: {
-                                                type: 'string',
-                                                enum: [
-                                                    'user',
-                                                    'assistant',
-                                                    'system',
-                                                ],
-                                            },
-                                            content: {
-                                                type: 'string',
-                                            },
-                                        },
-                                        required: ['role', 'content'],
-                                    },
-                                },
-                                model: {
-                                    type: 'string',
-                                    description: 'The model to use (optional)',
-                                },
-                            },
-                            required: ['messages'],
-                        },
-                    },
                     {
                         name: 'list_emulators',
                         description:
@@ -306,28 +217,6 @@ class MCPServer {
 
                 try {
                     switch (name) {
-                        case 'generate_text':
-                            if (!this.isGenerateTextArgs(args)) {
-                                throw new Error(
-                                    'Invalid arguments: prompt is required',
-                                );
-                            }
-                            return this.wrapResponse(
-                                await this.ollamaManager.generateText(args),
-                            );
-                        case 'list_models':
-                            return this.wrapResponse(
-                                await this.ollamaManager.listModels(),
-                            );
-                        case 'chat':
-                            if (!this.isChatArgs(args)) {
-                                throw new Error(
-                                    'Invalid arguments: messages array is required',
-                                );
-                            }
-                            return this.wrapResponse(
-                                await this.ollamaManager.chat(args),
-                            );
                         case 'list_emulators':
                             return this.wrapResponse(
                                 await this.androidManager.listEmulators(),
@@ -403,18 +292,6 @@ class MCPServer {
             return {
                 resources: [
                     {
-                        uri: 'ollama://status',
-                        mimeType: 'application/json',
-                        name: 'Ollama Server Status',
-                        description: 'Current status of the Ollama server',
-                    },
-                    {
-                        uri: 'ollama://models',
-                        mimeType: 'application/json',
-                        name: 'Available Models',
-                        description: 'List of all available models in Ollama',
-                    },
-                    {
                         uri: 'android://emulators',
                         mimeType: 'application/json',
                         name: 'Android Emulators',
@@ -440,30 +317,6 @@ class MCPServer {
 
                 try {
                     switch (uri) {
-                        case 'ollama://status':
-                            return {
-                                contents: [
-                                    {
-                                        uri,
-                                        mimeType: 'application/json',
-                                        text: JSON.stringify(
-                                            await this.ollamaManager.getServerStatus(),
-                                            null,
-                                            2,
-                                        ),
-                                    },
-                                ],
-                            };
-                        case 'ollama://models':
-                            return {
-                                contents: [
-                                    {
-                                        uri,
-                                        mimeType: 'application/json',
-                                        text: await this.ollamaManager.listModels(),
-                                    },
-                                ],
-                            };
                         case 'android://emulators':
                             return {
                                 contents: [
