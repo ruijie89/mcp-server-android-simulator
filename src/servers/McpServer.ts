@@ -128,8 +128,38 @@ export class MCPServer {
                       },
                   },
                   {
+                      name: 'fold_emulator',
+                      description: 'Fold a running Android emulator',
+                      inputSchema: {
+                          type: 'object',
+                          properties: {
+                              port: {
+                                  type: 'string',
+                                  description:
+                                      'Port number of emulator to fold (e.g., "5554")',
+                              },
+                          },
+                          required: ['port'],
+                      },
+                  },
+                  {
+                      name: 'unfold_emulator',
+                      description: 'Unfold a running Android emulator',
+                      inputSchema: {
+                          type: 'object',
+                          properties: {
+                              port: {
+                                  type: 'string',
+                                  description:
+                                      'Port number of emulator to unfold (e.g., "5554")',
+                              },
+                          },
+                          required: ['port'],
+                      },
+                  },
+                  {
                       name: 'list_running_emulators',
-                      description: 'List currently running Android emulators',
+                      description: 'List all currently running Android emulators',
                       inputSchema: {
                           type: 'object',
                           properties: {},
@@ -234,6 +264,18 @@ export class MCPServer {
                       case 'stop_emulator':
                           return this.wrapResponse(
                               await this.androidManager.stopEmulator(
+                                  this.getPortArg(args),
+                              ),
+                          );
+                      case 'fold_emulator':
+                          return this.wrapResponse(
+                              await this.androidManager.foldEmulator(
+                                  this.getPortArg(args),
+                              ),
+                          );
+                      case 'unfold_emulator':
+                          return this.wrapResponse(
+                              await this.androidManager.unfoldEmulator(
                                   this.getPortArg(args),
                               ),
                           );

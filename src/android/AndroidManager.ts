@@ -61,6 +61,17 @@ export class AndroidManager {
             .join('\n');
     }
 
+    async listRunningEmulators(): Promise<string> {
+        const running = await this.getRunningEmulators();
+        const runningList = running
+            .map((device) => `${device.name} (Port: ${device.port})`)
+            .join('\n');
+
+        return runningList
+            ? `Running Emulators:\n${runningList}`
+            : 'No emulators currently running.';
+    }
+
     async startEmulator(args: StartEmulatorArgs): Promise<string> {
         const {
             avd_name,
@@ -116,15 +127,40 @@ export class AndroidManager {
         }
     }
 
-    async listRunningEmulators(): Promise<string> {
-        const running = await this.getRunningEmulators();
-        const runningList = running
-            .map((device) => `${device.name} (Port: ${device.port})`)
-            .join('\n');
+    async foldEmulator(port: string): Promise<string> {
+      try {
+          await execAsync(
+              `${this.androidPaths.adb} -s emulator-${port} emu fold`,
+              {
+                  env: this.getAndroidEnv(),
+              },
+          );
+          return `Emulator on port ${port} has been folded.`;
+      } catch (error) {
+          throw new Error(
+              `Failed to fold emulator: ${
+                  error instanceof Error ? error.message : 'Unknown error'
+              }`,
+          );
+      }
+    }
 
-        return runningList
-            ? `Running Emulators:\n${runningList}`
-            : 'No emulators currently running.';
+    async unfoldEmulator(port: string): Promise<string> {
+      try {
+          await execAsync(
+              `${this.androidPaths.adb} -s emulator-${port} emu unfold`,
+              {
+                  env: this.getAndroidEnv(),
+              },
+          );
+          return `Emulator on port ${port} has been unfolded.`;
+      } catch (error) {
+          throw new Error(
+              `Failed to unfold emulator: ${
+                  error instanceof Error ? error.message : 'Unknown error'
+              }`,
+          );
+      }
     }
 
     async createAVD(args: CreateAVDArgs): Promise<string> {
