@@ -7,10 +7,13 @@ import {
 	EmulatorDevice,
 	EmulatorInfo,
 	LaunchAppArgs,
+	ScreenSize,
 	SDKList,
 	SDKPackage,
 	StartEmulatorArgs,
+	SwipeDirection,
 } from './types';
+import {error} from 'console';
 
 const execAsync = promisify(exec);
 
@@ -51,143 +54,52 @@ export class InteractionManager {
 		};
 	}
 
-	async listEmulators(): Promise<string> {
-		const emulators = await this.getEmulators();
-		return emulators
-			.map(
-				(emulator) =>
-					`${emulator.name} (Target: ${emulator.target}, ABI: ${emulator.abi})`,
-			)
-			.join('\n');
-	}
+	async swipe(port: string, direction: SwipeDirection): Promise<string> {
+		const screenSize = await this.getScreenSize(port);
+		const centerX = screenSize.width >> 1;
+		const centerY = screenSize.height >> 1;
 
-	async listRunningEmulators(): Promise<string> {
-		const running = await this.getRunningEmulators();
-		const runningList = running
-			.map((device) => `${device.name} (Port: ${device.port})`)
-			.join('\n');
+		let x0: number, y0: number, x1: number, y1: number;
+		const duration = 200; //milliseconds
 
-		return runningList
-			? `Running Emulators:\n${runningList}`
-			: 'No emulators currently running.';
-	}
-
-	async startEmulator(args: StartEmulatorArgs): Promise<string> {
-		const {
-			avd_name,
-			cold_boot = false,
-			wipe_data = false,
-			gpu,
-			port,
-		} = args;
-
-		try {
-			const emulatorArgs = [
-				'-avd',
-				avd_name,
-				...(cold_boot ? ['-no-snapshot-load'] : []),
-				...(wipe_data ? ['-wipe-data'] : []),
-				...(gpu ? ['-gpu', gpu] : []),
-				...(port ? ['-port', port.toString()] : []),
-			];
-
-			const child = spawn(this.androidPaths.emulator, emulatorArgs, {
-				detached: true,
-				stdio: 'ignore',
-				env: this.getAndroidEnv(),
-			});
-
-			child.unref();
-
-			return `Starting emulator "${avd_name}"... It may take a few moments to fully boot.`;
-		} catch (error) {
-			throw new Error(
-				`Failed to start emulator: ${
-					error instanceof Error ? error.message : 'Unknown error'
-				}`,
-			);
+		switch (direction) {
+			case 'up':
+				x0 = x1 = centerX;
+				y0 = Math.floor(screenSize.height * 0.8);
+				y1 = Math.floor(screenSize.height * 0.2);
+				break;
+			case 'down':
+				x0 = x1 = centerX;
+				y0 = Math.floor(screenSize.height * 0.2);
+				y1 = Math.floor(screenSize.height * 0.8);
+				break;
+			case 'left':
+				y0 = y1 = centerY;
+				x0 = Math.floor(screenSize.width * 0.8);
+				x1 = Math.floor(screenSize.width * 0.2);
+				break;
+			case 'right':
+				y0 = y1 = centerY;
+				x0 = Math.floor(screenSize.width * 0.2);
+				x1 = Math.floor(screenSize.width * 0.8);
+				break;
+			default:
+				throw new Error(
+					`Swipe direction "${direction}" is not supported`,
+				);
 		}
-	}
 
-	async stopEmulator(port: string): Promise<string> {
 		try {
 			await execAsync(
-				`${this.androidPaths.adb} -s emulator-${port} emu kill`,
+				`${this.androidPaths.adb} -s emulator-${port} shell input swipe ${x0} ${y0} ${x1} ${y1} ${duration}`,
 				{
 					env: this.getAndroidEnv(),
 				},
 			);
-			return `Emulator on port ${port} has been stopped.`;
+			return `Emulator on port ${port} has been swiped.`;
 		} catch (error) {
 			throw new Error(
-				`Failed to stop emulator: ${
-					error instanceof Error ? error.message : 'Unknown error'
-				}`,
-			);
-		}
-	}
-
-	async foldEmulator(port: string): Promise<string> {
-		try {
-			await execAsync(
-				`${this.androidPaths.adb} -s emulator-${port} emu fold`,
-				{
-					env: this.getAndroidEnv(),
-				},
-			);
-			return `Emulator on port ${port} has been folded.`;
-		} catch (error) {
-			throw new Error(
-				`Failed to fold emulator: ${
-					error instanceof Error ? error.message : 'Unknown error'
-				}`,
-			);
-		}
-	}
-
-	async unfoldEmulator(port: string): Promise<string> {
-		try {
-			await execAsync(
-				`${this.androidPaths.adb} -s emulator-${port} emu unfold`,
-				{
-					env: this.getAndroidEnv(),
-				},
-			);
-			return `Emulator on port ${port} has been unfolded.`;
-		} catch (error) {
-			throw new Error(
-				`Failed to unfold emulator: ${
-					error instanceof Error ? error.message : 'Unknown error'
-				}`,
-			);
-		}
-	}
-
-	async createAVD(args: CreateAVDArgs): Promise<string> {
-		const {name, package: pkg, device} = args;
-
-		try {
-			const avdArgs = [
-				'create',
-				'avd',
-				'-n',
-				name,
-				'-k',
-				`"${pkg}"`,
-				...(device ? ['-d', device] : []),
-			];
-
-			const {stdout} = await execAsync(
-				`${this.androidPaths.avdManager} ${avdArgs.join(' ')}`,
-				{
-					env: this.getAndroidEnv(),
-				},
-			);
-
-			return `AVD "${name}" created successfully.\n${stdout}`;
-		} catch (error) {
-			throw new Error(
-				`Failed to create AVD: ${
+				`Failed to swipe emulator: ${
 					error instanceof Error ? error.message : 'Unknown error'
 				}`,
 			);
@@ -224,47 +136,6 @@ export class InteractionManager {
 					error instanceof Error ? error.message : 'Unknown error'
 				}`,
 			);
-		}
-	}
-
-	private async getEmulators(): Promise<EmulatorDevice[]> {
-		try {
-			const {stdout} = await execAsync(
-				`${this.androidPaths.avdManager} list avd`,
-				{
-					env: this.getAndroidEnv(),
-				},
-			);
-
-			const emulators: EmulatorDevice[] = [];
-			const avdBlocks = stdout.split('Name: ').slice(1);
-
-			for (const block of avdBlocks) {
-				const lines = block.split('\n');
-				const name = lines[0].trim();
-				const target =
-					lines
-						.find((l) => l.includes('Target:'))
-						?.split('Target: ')[1]
-						?.trim() || 'Unknown';
-				const abi =
-					lines
-						.find((l) => l.includes('ABI:'))
-						?.split('ABI: ')[1]
-						?.trim() || 'Unknown';
-
-				emulators.push({
-					name,
-					target,
-					sdk: target,
-					abi,
-				});
-			}
-
-			return emulators;
-		} catch (error) {
-			console.error('Error listing emulators:', error);
-			return [];
 		}
 	}
 
@@ -364,129 +235,24 @@ export class InteractionManager {
 			: 'Unknown';
 	}
 
-	async listSDKs(): Promise<string> {
-		try {
-			const sdkList = await this.getSDKList();
-			let output = 'Installed SDK Packages:\n';
+	private async getScreenSize(port: string): Promise<ScreenSize> {
+		const {stdout} = await execAsync(
+			`${this.androidPaths.adb} -s emulator-${port} shell wm size`,
+			{
+				env: this.getAndroidEnv(),
+			},
+		);
 
-			if (sdkList.installed.length === 0) {
-				output += '  No packages installed\n';
-			} else {
-				output += sdkList.installed
-					.map(
-						(pkg) =>
-							`  ${pkg.path} (${pkg.version})${
-								pkg.description ? ' - ' + pkg.description : ''
-							}`,
-					)
-					.join('\n');
-			}
+		const match = stdout.match(/Physical size:\s*(\d+)x(\d+)/);
+		if (match) {
+			const scale = 1;
+			const width = parseInt(match[1], 10);
+			const height = parseInt(match[2], 10);
+			console.log(`Width: ${width}, Height: ${height}`);
 
-			output += '\n\nAvailable SDK Packages:\n';
-			const relevantPackages = sdkList.available.filter(
-				(pkg) =>
-					pkg.path.includes('system-images;android-') ||
-					pkg.path.includes('platforms;android-') ||
-					pkg.path.includes('platform-tools') ||
-					pkg.path.includes('build-tools;') ||
-					pkg.path.includes('cmdline-tools;'),
-			);
-
-			if (relevantPackages.length === 0) {
-				output += '  No relevant packages found\n';
-			} else {
-				output += relevantPackages
-					.map(
-						(pkg) =>
-							`  ${pkg.path} (${pkg.version})${
-								pkg.description ? ' - ' + pkg.description : ''
-							}`,
-					)
-					.join('\n');
-			}
-
-			return output;
-		} catch (error) {
-			return (
-				`Error listing SDKs: ${
-					error instanceof Error ? error.message : 'Unknown error'
-				}\n` +
-				`ANDROID_HOME: ${this.androidHome}\n` +
-				'Please ensure Android SDK is properly installed and ANDROID_HOME is set correctly.'
-			);
-		}
-	}
-
-	private async getSDKList(): Promise<SDKList> {
-		try {
-			const {stdout} = await execAsync(
-				`${this.androidPaths.sdkmanager} --list`,
-				{
-					env: this.getAndroidEnv(),
-				},
-			);
-
-			const lines = stdout.split('\n');
-			const installed: SDKPackage[] = [];
-			const available: SDKPackage[] = [];
-			let currentSection: 'installed' | 'available' | null = null;
-
-			for (const line of lines) {
-				if (line.includes('Available Packages:')) {
-					currentSection = 'available';
-					continue;
-				}
-
-				// Skip empty lines and headers
-				if (
-					!line.trim() ||
-					line.includes('---') ||
-					line.includes('Path |')
-				) {
-					continue;
-				}
-
-				// Parse installed packages (they have a different format)
-				if (currentSection !== 'available') {
-					const parts = line
-						.trim()
-						.split('|')
-						.map((s) => s.trim())
-						.filter(Boolean);
-					if (parts.length >= 2) {
-						installed.push({
-							path: parts[0],
-							version: parts[1],
-							description: parts[2] || '',
-							installed: true,
-						});
-					}
-					continue;
-				}
-
-				// Parse available packages
-				const parts = line
-					.trim()
-					.split('|')
-					.map((s) => s.trim())
-					.filter(Boolean);
-				if (parts.length >= 2) {
-					available.push({
-						path: parts[0],
-						version: parts[1],
-						description: parts[2] || '',
-						installed: false,
-					});
-				}
-			}
-
-			return {installed, available};
-		} catch (error) {
-			throw new Error(
-				`Failed to list SDKs: ${
-					error instanceof Error ? error.message : 'Unknown error'
-				}`,
-			);
+			return {width, height, scale};
+		} else {
+			throw new Error('Failed to get screen size');
 		}
 	}
 }

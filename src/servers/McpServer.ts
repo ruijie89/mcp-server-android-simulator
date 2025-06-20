@@ -15,6 +15,7 @@ import {
 	CreateAVDArgs,
 	LaunchAppArgs,
 	StartEmulatorArgs,
+	SwipeDirection,
 } from '../android/types.js';
 import {InteractionManager} from '../android/InteractionManager.js';
 
@@ -77,6 +78,27 @@ export class MCPServer {
 		return obj.port;
 	}
 
+	private getSwipeDirectionArg(args: unknown): SwipeDirection {
+		const obj = args as Record<string, unknown>;
+		const SwipeDirections: SwipeDirection[] = [
+			'up',
+			'down',
+			'left',
+			'right',
+		];
+
+		if (
+			!obj ||
+			typeof obj.direction !== 'string' ||
+			!SwipeDirections.includes(obj.direction as SwipeDirection)
+		) {
+			throw new Error(
+				"Invalid arguments: 'direction' is required and must be one of 'up', 'down', 'left', or 'right'",
+			);
+		}
+		return obj.direction as SwipeDirection;
+	}
+
 	private setupHandlers() {
 		// List available tools
 		this.server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -86,6 +108,15 @@ export class MCPServer {
 						name: 'list_emulators',
 						description:
 							'List all available Android emulators (AVDs)',
+						inputSchema: {
+							type: 'object',
+							properties: {},
+						},
+					},
+					{
+						name: 'list_running_emulators',
+						description:
+							'List all currently running Android emulators',
 						inputSchema: {
 							type: 'object',
 							properties: {},
@@ -171,15 +202,6 @@ export class MCPServer {
 						},
 					},
 					{
-						name: 'list_running_emulators',
-						description:
-							'List all currently running Android emulators',
-						inputSchema: {
-							type: 'object',
-							properties: {},
-						},
-					},
-					{
 						name: 'create_avd',
 						description:
 							'Create a new Android Virtual Device (AVD)',
@@ -250,6 +272,27 @@ export class MCPServer {
 							required: ['port', 'package_name'],
 						},
 					},
+					{
+						name: 'swipe_screen',
+						description:
+							'Perform a swipe action on the emulator screen',
+						inputSchema: {
+							type: 'object',
+							properties: {
+								port: {
+									type: 'string',
+									description:
+										'Port number of the emulator (e.g., "5554")',
+								},
+								direction: {
+									type: 'string',
+									description:
+										'Swiped direction on screen (e.g. "up", "down", "left", "right")',
+								},
+							},
+							required: ['port', 'direction'],
+						},
+					},
 				],
 			};
 		});
@@ -265,6 +308,14 @@ export class MCPServer {
 						case 'list_emulators':
 							return this.wrapResponse(
 								await this.emulatorManager.listEmulators(),
+							);
+						case 'list_running_emulators':
+							return this.wrapResponse(
+								await this.emulatorManager.listRunningEmulators(),
+							);
+						case 'list_sdks':
+							return this.wrapResponse(
+								await this.emulatorManager.listSDKs(),
 							);
 						case 'start_emulator':
 							if (!this.isStartEmulatorArgs(args)) {
@@ -293,10 +344,6 @@ export class MCPServer {
 									this.getPortArg(args),
 								),
 							);
-						case 'list_running_emulators':
-							return this.wrapResponse(
-								await this.emulatorManager.listRunningEmulators(),
-							);
 						case 'create_avd':
 							if (!this.isCreateAVDArgs(args)) {
 								throw new Error(
@@ -323,11 +370,14 @@ export class MCPServer {
 								);
 							}
 							return this.wrapResponse(
-								await this.emulatorManager.launchApp(args),
+								await this.interactionManager.launchApp(args),
 							);
-						case 'list_sdks':
+						case 'swipe_screen':
 							return this.wrapResponse(
-								await this.emulatorManager.listSDKs(),
+								await this.interactionManager.swipe(
+									this.getPortArg(args),
+									this.getSwipeDirectionArg(args),
+								),
 							);
 						default:
 							throw new Error(`Unknown tool: ${name}`);
